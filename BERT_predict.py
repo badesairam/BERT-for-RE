@@ -264,19 +264,19 @@ def create_datasets(positive_file_path,negative_file_path):
     with open(negative_file_path, "r") as test_file:
         for line in test_file:
             line_split = line.split("|")
-            negative_sents.append(line_split[1] + "[RE]" + line_split[2] + "[RE]" + line_split[3])
+            negative_sents.append(line_split[0] + "[RE]" + line_split[1] + "[RE]" + line_split[2])
 
     num_positive_sents = len(positive_sents)
     positive_labels = [1]*num_positive_sents
     num_negative_sents = len(negative_sents)
     negative_labels = [0]*num_negative_sents
 
-    train_sents = positive_sents[:int(0.9*num_positive_sents)]+negative_sents[:int(0.9*num_negative_sents)]
-    train_labels = positive_labels[:int(0.9*num_positive_sents)]+negative_labels[:int(0.9*num_negative_sents)]
+    train_sents = positive_sents[:int(0.8*num_positive_sents)]+negative_sents[:int(0.8*num_negative_sents)]
+    train_labels = positive_labels[:int(0.8*num_positive_sents)]+negative_labels[:int(0.8*num_negative_sents)]
 
-    test_labels = positive_labels[int(0.9*num_positive_sents):]+negative_labels[int(0.9*num_negative_sents):]
-    test_sents = positive_sents[int(0.9*num_positive_sents):]+negative_sents[int(0.9*num_negative_sents):]
-
+    test_sents = positive_sents[int(0.8*num_positive_sents):]+negative_sents[int(0.8*num_negative_sents):]
+    test_labels = positive_labels[int(0.8*num_positive_sents):]+negative_labels[int(0.8*num_negative_sents):]
+    
     train_data = list(zip(train_sents,train_labels))
     test_data = list(zip(test_sents,test_labels))
 
@@ -301,7 +301,7 @@ SAVE_CHECKPOINTS_STEPS = 50
 SAVE_SUMMARY_STEPS = 10
 KEEP_CHECKPOINT_MAX= 5
 
-OUTPUT_DIR ="/home/deepcompute/Bade/Relation_Extraction/model_chk"
+OUTPUT_DIR ="/home/deepcompute/Bade/Relation_Extraction/model_chk_large"
 #OUTPUT_DIR ="/Users/sairambade/Documents/Relation_Extraction/model_chk"
 
 # Compute # train and warmup steps from batch size
@@ -343,16 +343,20 @@ def train_and_evaluate(train_sents,test_sents,labels_train,labels_test):
 
 def predict(in_sentences):
     """ predicts the output relation of sentences"""
-    labels = ["Adverse effect", "Not an adverse effect"]
     input_examples = [run_classifier.InputExample(guid="", text_a=x, text_b=None, label=0) for x in in_sentences]
     # print(input_examples)
     input_features = convert_examples_to_features_RE(input_examples, label_list, MAX_SEQUENCE_LENGTH, tokenizer)
     predict_input_fn = run_classifier.input_fn_builder(features=input_features, seq_length=MAX_SEQUENCE_LENGTH,
                                                        is_training=False, drop_remainder=False)
-    predictions = estimator.predict(predict_input_fn, yield_single_examples=False)
-    return predictions
-    # return [(sentence, prediction['probabilities'], labels[prediction['labels']]) for sentence, prediction in
-    #         zip(in_sentences, predictions)]
+    predictions = estimator.predict(predict_input_fn, yield_single_examples=True)
+    #return predictions
+    return [(sentence, prediction['probabilities'], prediction['labels']) for sentence, prediction in
+            zip(in_sentences, predictions)]
 
-
-train_and_evaluate(train_sents,test_sents,train_labels,test_labels)
+if __name__ == "__main__":
+    labels = ["Not an Adverse effect", "Adverse effect"]
+    matched = ["Not matched", "Matched"]
+    #train_and_evaluate(train_sents,test_sents,train_labels,test_labels)
+    for preds,actual in zip(predict(test_sents),test_labels):	
+       if(preds[2]==1):
+          print(preds[0]+"   |||   "+labels[preds[2]]+"    |||     "+labels[actual]+"    |||    "+matched[(preds[2]==actual)])
