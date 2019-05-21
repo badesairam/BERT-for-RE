@@ -1,11 +1,15 @@
 import random
+import time
 import tensorflow as tf
 import tensorflow_hub as hub
 import bert
+import os
+from pathlib import Path
 
 from bert import run_classifier
 from bert import tokenization
 from tensorflow.contrib.layers import xavier_initializer
+from tensorflow.contrib import predictor
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -218,7 +222,7 @@ def convert_single_example_RE(ex_index, example, label_list, max_seq_length,
     assert len(segment_ids) == max_seq_length
 
     label_id = label_map[example.label]
-    if ex_index < 2:
+    if ex_index < 0:
         tf.logging.info("*** Example ***")
         tf.logging.info("guid: %s" % (example.guid))
         tf.logging.info("tokens: %s" % " ".join(
@@ -341,6 +345,29 @@ def train_and_evaluate(train_sents,test_sents,labels_train,labels_test):
 
 
 
+def serving_input_receiver_fn():
+    label_ids = tf.placeholder(tf.int32, [None], name='label_ids')
+    input_ids = tf.placeholder(tf.int32, [None, MAX_SEQUENCE_LENGTH], name='input_ids')
+    input_mask = tf.placeholder(tf.int32, [None, MAX_SEQUENCE_LENGTH], name='input_mask')
+    segment_ids = tf.placeholder(tf.int32, [None, MAX_SEQUENCE_LENGTH], name='segment_ids')
+    input_fn = tf.estimator.export.build_raw_serving_input_receiver_fn({
+        'label_ids': label_ids,
+        'input_ids': input_ids,
+        'input_mask': input_mask,
+        'segment_ids': segment_ids,
+    })()
+    return input_fn
+
+# estimator._export_to_tpu = False
+# estimator.export_saved_model('saved_model',serving_input_receiver_fn)
+
+export_dir = 'saved_model'
+subdirs = [x for x in Path(export_dir).iterdir()
+           if x.is_dir() and 'temp' not in str(x)]
+latest = str(sorted(subdirs)[-1])
+
+predict_fn = predictor.from_saved_model(latest)
+
 def predict(in_sentences):
     """ predicts the output relation of sentences"""
     input_examples = [run_classifier.InputExample(guid="", text_a=x, text_b=None, label=0) for x in in_sentences]
@@ -353,10 +380,38 @@ def predict(in_sentences):
     return [(sentence, prediction['probabilities'], prediction['labels']) for sentence, prediction in
             zip(in_sentences, predictions)]
 
+
+def predict_serve(in_sentences):
+    """ predicts the output relation of sentences"""
+    input_examples = [run_classifier.InputExample(guid="", text_a=x, text_b=None, label=0) for x in in_sentences]
+    # print(input_examples)
+    input_features = [convert_single_example_RE(0,input_example, label_list, MAX_SEQUENCE_LENGTH, tokenizer) for input_example in input_examples]
+    input_ids = [input_feature.input_ids for input_feature in input_features]
+    label_ids = [input_feature.label_id for input_feature in input_features]
+    input_mask = [input_feature.input_mask for input_feature in input_features]
+    segment_ids = [input_feature.segment_ids for input_feature in input_features]
+    predictions = predict_fn({'input_ids':input_ids,'label_ids':label_ids,
+                                'input_mask':input_mask,'segment_ids':segment_ids}) #predict_input_fn(params={"batch_size": BATCH_SIZE}))
+    # return predictions
+    return [(sentence,probs,label) for sentence, probs ,label in zip(in_sentences, predictions['probabilities'], predictions['labels'])]
+
+
+
 if __name__ == "__main__":
-    labels = ["Not an Adverse effect", "Adverse effect"]
+    labels = ["Not an adverse effect", "Adverse effect"]
     matched = ["Not matched", "Matched"]
     #train_and_evaluate(train_sents,test_sents,train_labels,test_labels)
-    for preds,actual in zip(predict(test_sents),test_labels):	
-       if(preds[2]==1):
-          print(preds[0]+"   |||   "+labels[preds[2]]+"    |||     "+labels[actual]+"    |||    "+matched[(preds[2]==actual)])
+    # with open("TN_FN.txt","w") as f:
+    #    for preds,actual in zip(predict(test_sents),test_labels):	
+    #       if(preds[2]==0):
+    #         f.write(preds[0]+"   |||   "+labels[preds[2]]+"    |||     "+labels[actual]+"    |||    "+matched[(preds[2]==actual)]+"\n")
+    sents = ["treatment of philadelphia chromosome_positive acute lymphocytic leukemia with hyper_cvad and imatinib mesylate .[RE]imatinib[RE]leukemia"]
+    # for i in range(32):
+    #     print(predict_serve(sents))
+    print(predict_serve(sents*4))
+    # with tf.Session(graph=tf.Graph()) as sess:
+    #     tf.saved_model.loader.load(sess, ["serve"], latest)
+    #     graph = tf.get_default_graph()
+        # print(graph.get_operations())
+
+    # estimator.export_saved_model('saved_model',serving_input_receiver_fn)
