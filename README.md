@@ -1,1 +1,1 @@
-Apply BERT for Relation Extraction
+Apply BERT for Relation Extraction , just use predict_serve for getting the results
